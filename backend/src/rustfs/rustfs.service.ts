@@ -16,7 +16,7 @@ export class RustfsService {
   private s3Client: S3Client;
 
   constructor() {
-    this.bucketName = process.env.RUSTFS_BUCKET_NAME || 'CStroage';
+    this.bucketName = process.env.RUSTFS_BUCKET_NAME || 'cstroage';
     this.s3Client = new S3Client({
       region: 'us-east-1',
       endpoint: process.env.RUSTFS_ENDPOINT!,
@@ -48,7 +48,7 @@ export class RustfsService {
       // we need the file key as it is the destination
       return { uploadId: resposne.UploadId, filekey };
     } catch (error) {
-      throw new Error('multipart init error', error);
+      console.error('multipart init error', error);
     }
   }
 
@@ -79,7 +79,7 @@ export class RustfsService {
       //return the urls of the parts
       return { parts: url };
     } catch (error) {
-      throw new Error('failed to presigned url for parts', error);
+      console.error('failed to presigned url for parts', error);
     }
   }
   async completeuplaod(
@@ -98,7 +98,7 @@ export class RustfsService {
           Parts: parts
             .sort((a, b) => a.partnumber - b.partnumber)
             .map((p) => ({
-              PartNumber: p.partnumebr,
+              PartNumber: p.partnumber,
               ETag: p.etag,
             })),
         },
