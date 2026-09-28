@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, DragEvent, useRef, useState } from "react";
+import { useAuth } from "../context/store";
 
 export default function VideoInput() {
   const [file, setFile] = useState<File | null>(null);
@@ -14,7 +15,7 @@ export default function VideoInput() {
   const [videosrc, setVideosrc] = useState<string | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
   const [uploadprogress, setUploadprogress] = useState<number>(0);
-
+  const { token, user } = useAuth();
   // Corrected type to HTMLInputElement
   const fileinputref = useRef<HTMLInputElement>(null);
   const videoref = useRef<HTMLVideoElement>(null);
@@ -188,6 +189,7 @@ export default function VideoInput() {
             filekey,
             uploadid,
             parts: uploadparts,
+            userId: user?.sub || user?.id,
           }),
         },
       );
