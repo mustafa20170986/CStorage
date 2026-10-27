@@ -2,12 +2,17 @@ import {
   AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
   CreateMultipartUploadCommand,
+  PutObjectCommand,
   S3Client,
   UploadPartCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { Injectable } from '@nestjs/common';
-
+import { Inject, Injectable } from '@nestjs/common';
+import { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { DRIZZLE } from '../db/drizzle';
+import * as schema from '../db/schema';
+import * as path from 'path';
+import { Express } from 'express';
 @Injectable()
 export class RustfsService {
   //initalize bucket name
@@ -15,7 +20,9 @@ export class RustfsService {
   //initialize s3 client
   private s3Client: S3Client;
 
-  constructor() {
+  constructor(
+    @Inject(DRIZZLE) private drizzle: PostgresJsDatabase<typeof schema>,
+  ) {
     this.bucketName = process.env.RUSTFS_BUCKET_NAME || 'cstroage';
     this.s3Client = new S3Client({
       region: 'us-east-1',
@@ -73,9 +80,13 @@ export class RustfsService {
             'x-amz-sdk-checksum-algorithm',
           ]),
         });
+        console.log(
+          `Generating presigned URL for Part ${partnumber} with UploadId: ${uploadId}`,
+        );
         // push the link with part numbe in the array
         url.push({ partnumber, presignedurl });
       }
+
       //return the urls of the parts
       return { parts: url };
     } catch (error) {
@@ -86,7 +97,9 @@ export class RustfsService {
     filekey: string,
     upalodid: string,
     parts: { partnumber: number; etag: string }[],
+    userId: string,
   ) {
+    if (!userId) throw new Error('user id is missing');
     try {
       const command = new CompleteMultipartUploadCommand({
         Bucket: this.bucketName,
@@ -104,6 +117,25 @@ export class RustfsService {
         },
       });
       const reposne = await this.s3Client.send(command);
+      try {
+        const publicUrl = `http://localhost:9000/${this.bucketName}/${filekey}`;
+        await this.drizzle.transaction(async (txt) => {
+          await txt.insert(schema.outboxEvents).values({
+            aggrigateType: 'video',
+            aggrigateId: filekey,
+            eventType: 'video.uploaded',
+            payload: JSON.stringify({ filekey, upalodid }),
+            processed: false,
+          });
+          await txt.insert(schema.videoTable).values({
+            file_key: filekey,
+            public_link: publicUrl,
+            user_id: userId,
+          });
+        });
+      } catch (error) {
+        console.log('eaten error in transaction', error);
+      }
       return {
         localtion: reposne.Location,
         filekey,
@@ -122,6 +154,36 @@ export class RustfsService {
       await this.s3Client.send(command);
     } catch (error) {
       throw new Error(' failed to abort multipart', error);
+    }
+  }
+
+  async imageupload(file: Express.Multer.File, userId: string) {
+    try {
+      const fileext = path.extname(file.originalname);
+      const filename = `images/${Date.now()}-${Math.round(Math.random() * 1e9)}${fileext}`;
+
+      const command = new PutObjectCommand({
+        Bucket: this.bucketName,
+        Key: filename,
+        Body: file.buffer,
+        ContentType: file.mimetype,
+      });
+      await this.s3Client.send(command);
+
+      const publicUrl = `http://localhost:9000/${this.bucketName}/${filename}`;
+
+      await this.drizzle.insert(schema.imageTable).values({
+        public_link: publicUrl,
+        file_key: filename,
+        user_id: userId,
+      });
+      return {
+        filekey: filename,
+        url: `CStorage:${filename}`,
+      };
+    } catch (error) {
+      console.log(error);
+      throw new Error('failed upload image', error);
     }
   }
 }
